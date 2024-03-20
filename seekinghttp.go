@@ -3,11 +3,12 @@ package seekinghttp
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 )
 
 type HttpClient interface {
@@ -31,18 +32,20 @@ type SeekingHTTP struct {
 	Logger     Logger
 }
 
-// Compile-time check of interface implementations.
-var _ io.ReadSeeker = (*SeekingHTTP)(nil)
-var _ io.ReaderAt = (*SeekingHTTP)(nil)
+// _ is a type assertion
+var (
+	_ io.ReadSeeker = (*SeekingHTTP)(nil)
+	_ io.ReaderAt   = (*SeekingHTTP)(nil)
+)
 
 // New initializes a SeekingHTTP for the given URL.
-// The SeekingHTTP.Client field may be set before the first call
-// to Read or Seek.
 func New(url string) *SeekingHTTP {
-	return &SeekingHTTP{
-		URL:    url,
-		offset: 0,
-	}
+	return NewWithClient(url, nil)
+}
+
+// NewWithClient initializes a SeekingHTTP for the given URL with a client..
+func NewWithClient(url string, client HttpClient) *SeekingHTTP {
+	return &SeekingHTTP{URL: url, Client: client}
 }
 
 func (s *SeekingHTTP) SetLogger(logger Logger) {
@@ -57,16 +60,7 @@ func (s *SeekingHTTP) newReq() (*http.Request, error) {
 			return nil, err
 		}
 	}
-	return &http.Request{
-		Method:     "GET",
-		URL:        s.url,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     make(http.Header),
-		Body:       nil,
-		Host:       s.url.Host,
-	}, nil
+	return http.NewRequest("GET", s.url.String(), nil)
 }
 
 func fmtRange(from, l int64) string {
@@ -77,7 +71,13 @@ func fmtRange(from, l int64) string {
 		to = from + (l - 1)
 	}
 
-	return fmt.Sprintf("bytes=%v-%v", from, to)
+	var sb strings.Builder
+	sb.Grow(24)
+	_, _ = sb.WriteString("bytes=")
+	_, _ = sb.WriteString(strconv.FormatInt(from, 10))
+	_, _ = sb.WriteString("-")
+	_, _ = sb.WriteString(strconv.FormatInt(to, 10))
+	return sb.String()
 }
 
 // ReadAt reads len(buf) bytes into buf starting at offset off.
@@ -116,10 +116,7 @@ func (s *SeekingHTTP) ReadAt(buf []byte, off int64) (n int, err error) {
 	}
 
 	// Minimum fetch size is 1 meg
-	wanted := 1024 * 1024
-	if wanted < len(buf) {
-		wanted = len(buf)
-	}
+	wanted := min(1024*1024, len(buf))
 
 	rng := fmtRange(off, int64(wanted))
 	req.Header.Add("Range", rng)
@@ -147,7 +144,12 @@ func (s *SeekingHTTP) ReadAt(buf []byte, off int64) (n int, err error) {
 
 	// body needs to be closed, even if responses that aren't 200 or 206
 	defer func(body io.ReadCloser) {
-		cErr := body.Close()
+		_, cErr := io.Copy(io.Discard, body)
+		if cErr == nil {
+			cErr = body.Close()
+		} else {
+			_ = body.Close()
+		}
 		if err == nil && cErr != nil {
 			err = cErr
 		}
