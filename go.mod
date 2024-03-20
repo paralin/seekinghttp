@@ -1,8 +1,13 @@
-module github.com/jeffallen/seekinghttp
+module github.com/paralin/seekinghttp
 
-go 1.18
+// upstream: github.com/jeffallen/seekinghttp
 
-require github.com/stretchr/testify v1.8.4
+go 1.21
+
+require (
+	github.com/jeffallen/seekinghttp v0.0.0-20230925084650-148e434ef138
+	github.com/stretchr/testify v1.9.0
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
