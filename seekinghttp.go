@@ -118,7 +118,10 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 
 	// If the size is known, cap the length to the size.
 	if s.KnownSize != nil {
-		length = min(*s.KnownSize, length)
+		length = min(*s.KnownSize-off, length)
+		if length < 0 {
+			return 0, io.EOF
+		}
 	}
 
 	if s.last != nil && off > s.lastOffset {
