@@ -91,6 +91,10 @@ func fmtRange(from, l int64) string {
 func (s *SeekingHTTP) ReadAt(buf []byte, off int64) (n int, err error) {
 	n, err = s.ReadAtWithLength(buf, off, int64(len(buf)))
 	n = min(len(buf), n)
+	if n != len(buf) && err == nil {
+		// ReadAt must always return len(buf), nil
+		err = io.EOF
+	}
 	return n, err
 }
 
@@ -105,6 +109,11 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 
 	if off < 0 {
 		return 0, io.EOF
+	}
+
+	// If the size is known, cap the length to the size.
+	if s.KnownSize != nil {
+		length = min(*s.KnownSize, length)
 	}
 
 	if s.last != nil && off > s.lastOffset {
