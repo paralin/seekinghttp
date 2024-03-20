@@ -111,6 +111,11 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 		return 0, io.EOF
 	}
 
+	// Set the length to be at least MinFetch if set.
+	if s.MinFetch != 0 {
+		length = max(length, s.MinFetch)
+	}
+
 	// If the size is known, cap the length to the size.
 	if s.KnownSize != nil {
 		length = min(*s.KnownSize, length)
@@ -141,18 +146,8 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 		return 0, err
 	}
 
-	wanted := min(s.MinFetch, length)
-	rng := fmtRange(off, wanted)
+	rng := fmtRange(off, length)
 	req.Header.Add("Range", rng)
-
-	if s.last == nil {
-		// Cache does not exist yet. So make it.
-		s.last = &bytes.Buffer{}
-	} else {
-		// Cache is getting replaced. Bring it back to zero bytes, but
-		// keep the underlying []byte, since we'll reuse it right away.
-		s.last.Reset()
-	}
 
 	if s.Logger != nil {
 		s.Logger.Infof("Start HTTP GET with Range: %s", rng)
@@ -181,6 +176,16 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 	}
 
 	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent {
+		s.lastOffset = off
+		if s.last == nil {
+			// Cache does not exist yet. So make it.
+			s.last = &bytes.Buffer{}
+		} else {
+			// Cache is getting replaced. Bring it back to zero bytes, but
+			// keep the underlying []byte, since we'll reuse it right away.
+			s.last.Reset()
+		}
+
 		n, err := s.last.ReadFrom(resp.Body)
 		if err != nil {
 			return 0, err
@@ -201,7 +206,6 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 		if s.Logger != nil {
 			s.Logger.Debugf("loaded %d bytes into last", contentLength)
 		}
-		s.lastOffset = off
 
 		n = min(contentLength, length)
 		bufN := min(int(n), len(buf))
