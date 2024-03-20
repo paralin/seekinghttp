@@ -124,7 +124,7 @@ func (s *SeekingHTTP) ReadAtWithLength(buf []byte, off, length int64) (n int, er
 		}
 	}
 
-	if s.last != nil && off > s.lastOffset {
+	if s.last != nil && off >= s.lastOffset {
 		end := off + length
 		if end <= s.lastOffset+int64(s.last.Len()) {
 			start := off - s.lastOffset
